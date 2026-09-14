@@ -23,9 +23,17 @@ constexpr uint8_t kLoraSf = 8;
 constexpr uint8_t kLoraCr = 8;
 // La puissance TX (défaut et maxi) est propre à chaque carte : cf. Board.
 
+// Preset MeshCore US (à activer à la place du bloc ci-dessus) /
+// MeshCore US preset (uncomment and use instead of the block above):
+// constexpr float kLoraFreqMhz = 910.525f;
+// constexpr float kLoraBwKhz = 62.5f;
+// constexpr uint8_t kLoraSf = 7;
+// constexpr uint8_t kLoraCr = 5;
+
 // Préfixe de la clé publique du répéteur MeshCore visé — valeur d'usine
 // au premier démarrage, modifiable ensuite via le menu (persisté).
 constexpr uint8_t kTargetPubkeyPrefix[] = { 0x57, 0xDB };
+// US example / exemple US : { 0x4F, 0x3D }
 
 // On n'accepte une réponse TRACE que dans les 10 s suivant notre ping
 constexpr uint32_t kTraceReplyTimeoutMs = 10000;

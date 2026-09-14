@@ -1,21 +1,23 @@
-#if defined(BOARD_HELTEC_V4_3) || defined(BOARD_HELTEC_V4_R8)
+#if defined(BOARD_HELTEC_V4_2) || defined(BOARD_HELTEC_V4_3) || \
+    defined(BOARD_HELTEC_V4_R8)
 // =====================================================================
-// Heltec WiFi LoRa 32 V4 — deux déclinaisons partagent cette carte :
-//  - BOARD_HELTEC_V4_3 : révision 4.3 (ESP32-S3R2, 2 Mo PSRAM) ;
+// Heltec WiFi LoRa 32 V4 — trois déclinaisons partagent cette carte :
+//  - BOARD_HELTEC_V4_2 : révision ≤ 4.2 (ESP32-S3R2 + FEM GC1109) ;
+//  - BOARD_HELTEC_V4_3 : révision 4.3 (ESP32-S3R2 + FEM KCT8103L) ;
 //  - BOARD_HELTEC_V4_R8 : série "R8" (ESP32-S3R8, 8 Mo PSRAM), vendue
-//    ensuite, qui ne diffère ici que par la broche de son rail Vext
-//    (GPIO40 au lieu de GPIO36).
+//    ensuite, qui ne diffère de la 4.3 que par la broche de son rail
+//    Vext (GPIO40 au lieu de GPIO36).
 //
-// Commun aux deux : SX1262 (brochage LoRa et OLED identique au V3),
-// OLED 128x64 piloté en SSD1306, un seul bouton utilisateur (PRG), et
-// un FEM (front-end module) KCT8103L entre le SX1262 et l'antenne, qui
-// ajoute ~12 dB en émission et offre un LNA débrayable en réception.
-// Valeurs reprises du firmware MeshCore (variants/heltec_v4{,_r8}).
+// Commun : SX1262 (brochage LoRa et OLED identique au V3), OLED 128x64
+// piloté en SSD1306, un seul bouton utilisateur (PRG), et un FEM entre
+// le SX1262 et l'antenne (~12 dB en émission). Valeurs reprises du
+// firmware MeshCore (variants/heltec_v4{,_r8}).
 //
-// Note : les V4 antérieurs au 4.3 embarquent un autre FEM (GC1109,
-// pilotage différent) et ne sont pas gérés : initPower() le détecte et
-// bloque le démarrage. Les déclinaisons TFT et e-ink ne sont pas gérées
-// non plus.
+// Différence FEM : le GC1109 (V4 ≤ 4.2) se pilote via CSD (GPIO2) + CPS
+// (GPIO46) ; le KCT8103L (V4.3 / R8) via CSD (GPIO2) + CTX (GPIO5), avec
+// LNA RX débrayable. Le type est vérifié au démarrage (niveau de repos
+// de CSD) : un binaire flashé sur la mauvaise révision s'arrête sans
+// émettre. Les déclinaisons TFT et e-ink ne sont pas gérées.
 // =====================================================================
 #include <U8g2lib.h>
 
@@ -32,13 +34,13 @@ constexpr uint8_t kPinLoraReset = 12;
 constexpr uint8_t kPinLoraBusy = 13;
 constexpr uint8_t kPinLoraDio1 = 14;
 
-// FEM KCT8103L : LDO d'alimentation, CSD (enable) et CTX (aiguillage :
-// HIGH = PA en émission / LNA contourné en réception, LOW = LNA actif).
+// FEM : LDO d'alimentation commun ; ensuite GC1109 (EN + CPS) ou
+// KCT8103L (CSD + CTX). Gain PA : MeshCore documente 10 dBm demandés au
+// SX1262 pour 22 dBm mesurés à l'antenne.
 constexpr uint8_t kPinFemLdo = 7;
-constexpr uint8_t kPinFemCsd = 2;
-constexpr uint8_t kPinFemCtx = 5;
-// Gain du PA en émission : MeshCore documente 10 dBm demandés au SX1262
-// pour 22 dBm mesurés à l'antenne.
+constexpr uint8_t kPinFemCsd = 2;       // GC1109 EN / KCT8103L CSD
+constexpr uint8_t kPinFemGc1109Cps = 46;  // HIGH = full PA
+constexpr uint8_t kPinFemKctCtx = 5;   // HIGH = TX / LNA bypass
 constexpr int8_t kFemTxGainDb = 12;
 
 constexpr uint8_t kPinOledSda = 17;
@@ -55,11 +57,20 @@ constexpr uint8_t kPinButtonPrg = 0;  // relié à la masse quand pressé
 #ifdef BOARD_HELTEC_V4_R8
 constexpr char kBoardName[] = "Heltec WiFi LoRa 32 V4 R8";
 constexpr uint8_t kPinVext = 40;
+#elif defined(BOARD_HELTEC_V4_2)
+constexpr char kBoardName[] = "Heltec WiFi LoRa 32 V4.2";
+constexpr uint8_t kPinVext = 36;
 #else
 constexpr char kBoardName[] = "Heltec WiFi LoRa 32 V4.3";
 constexpr uint8_t kPinVext = 36;
 #endif
 constexpr uint8_t kVextOnLevel = LOW;
+
+#ifdef BOARD_HELTEC_V4_2
+constexpr bool kExpectGc1109 = true;
+#else
+constexpr bool kExpectGc1109 = false;
+#endif
 
 const ButtonSpec kButtons[] = {
     {Key::Ok, kPinButtonPrg, /*activeLow=*/true, /*internalPullup=*/true},
@@ -76,27 +87,35 @@ public:
     // Alimente le FEM puis identifie sa référence par le niveau de repos
     // de CSD (astuce reprise de MeshCore) : pull-up interne sur le
     // KCT8103L (V4.3 et R8) -> HIGH, pull-down sur le GC1109 (V4 <= 4.2)
-    // -> LOW. Un GC1109 se pilote différemment : plutôt que d'émettre à
-    // travers un FEM mal configuré, on coupe son alimentation et on
-    // laisse l'application s'arrêter sur selfCheckError().
+    // -> LOW. Le binaire ne configure que le FEM qu'il attend.
     pinMode(kPinFemLdo, OUTPUT);
     digitalWrite(kPinFemLdo, HIGH);
     delay(1);  // temps de démarrage du FEM
     pinMode(kPinFemCsd, INPUT);
     delay(1);
-    if (digitalRead(kPinFemCsd) == LOW) {
+    const bool isGc1109 = (digitalRead(kPinFemCsd) == LOW);
+
+    if (isGc1109 != kExpectGc1109) {
       digitalWrite(kPinFemLdo, LOW);
-      _selfCheckError = "FEM GC1109 (V4<=4.2)";
+      _selfCheckError =
+          kExpectGc1109 ? "FEM KCT8103L (V4.3+)" : "FEM GC1109 (V4<=4.2)";
+    } else if (isGc1109) {
+      // GC1109 : EN haut = actif ; CPS haut = PA plein (TX), bas en RX
+      // (CTX aiguillé par DIO2 du SX1262). Pas de LNA logiciel.
+      pinMode(kPinFemCsd, OUTPUT);
+      digitalWrite(kPinFemCsd, HIGH);
+      pinMode(kPinFemGc1109Cps, OUTPUT);
+      digitalWrite(kPinFemGc1109Cps, LOW);
     } else {
-      // Configure le FEM. CSD haut = actif ; CTX haut au départ = PA dans
-      // le chemin d'émission, LNA contourné en réception. L'aiguillage RX
-      // est ensuite géré par radioRxMode() selon setFemLna(). Attention si
-      // le LNA est activé : son gain s'ajoute au RSSI mesuré par le
+      // KCT8103L : CSD haut = actif ; CTX haut au départ = PA dans le
+      // chemin d'émission, LNA contourné en réception. L'aiguillage RX
+      // est ensuite géré par radioRxMode() selon setFemLna(). Attention
+      // si le LNA est activé : son gain s'ajoute au RSSI mesuré par le
       // SX1262, précisément la donnée que cet appareil affiche.
       pinMode(kPinFemCsd, OUTPUT);
       digitalWrite(kPinFemCsd, HIGH);
-      pinMode(kPinFemCtx, OUTPUT);
-      digitalWrite(kPinFemCtx, HIGH);
+      pinMode(kPinFemKctCtx, OUTPUT);
+      digitalWrite(kPinFemKctCtx, HIGH);
     }
 
     delay(150);  // stabilisation du Vext avant l'init de l'OLED
@@ -104,15 +123,29 @@ public:
 
   const char *selfCheckError() const override { return _selfCheckError; }
 
-  void radioTxMode() override { digitalWrite(kPinFemCtx, HIGH); }
-
-  void radioRxMode() override {
-    digitalWrite(kPinFemCtx, _femLnaEnabled ? LOW : HIGH);
+  void radioTxMode() override {
+    if (kExpectGc1109) {
+      digitalWrite(kPinFemGc1109Cps, HIGH);
+    } else {
+      digitalWrite(kPinFemKctCtx, HIGH);
+    }
   }
 
-  bool hasFemLna() const override { return true; }
+  void radioRxMode() override {
+    if (kExpectGc1109) {
+      digitalWrite(kPinFemGc1109Cps, LOW);
+    } else {
+      digitalWrite(kPinFemKctCtx, _femLnaEnabled ? LOW : HIGH);
+    }
+  }
 
-  void setFemLna(bool enabled) override { _femLnaEnabled = enabled; }
+  bool hasFemLna() const override { return !kExpectGc1109; }
+
+  void setFemLna(bool enabled) override {
+    if (!kExpectGc1109) {
+      _femLnaEnabled = enabled;
+    }
+  }
 
   Display &display() override { return _display; }
 
@@ -138,8 +171,8 @@ public:
     return t;
   }
 
-  // Même FEM et même chaîne RF que la 4.3 : même plafond de 20 dBm à
-  // l'antenne pour la série R8 (à ajuster si son PA est qualifié plus haut).
+  // Plafond « à l'antenne » : même politique que la 4.3 (gain FEM ~12 dB
+  // déjà retranché avant consigne SX1262).
   int8_t txPowerMaxDbm() const override { return 20; }
 
   const ButtonSpec *buttons(size_t &count) const override {
@@ -161,4 +194,4 @@ Board &board() {
   static HeltecV4Board instance;
   return instance;
 }
-#endif  // BOARD_HELTEC_V4_3 || BOARD_HELTEC_V4_R8
+#endif  // BOARD_HELTEC_V4_2 || BOARD_HELTEC_V4_3 || BOARD_HELTEC_V4_R8
