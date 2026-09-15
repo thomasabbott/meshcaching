@@ -20,6 +20,8 @@
 // émettre. Les déclinaisons TFT et e-ink ne sont pas gérées.
 // =====================================================================
 #include <U8g2lib.h>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 
 #include "../Board.h"
 #include "../U8g2Display.h"
@@ -47,6 +49,11 @@ constexpr uint8_t kPinOledSda = 17;
 constexpr uint8_t kPinOledScl = 18;
 constexpr uint8_t kPinOledReset = 21;
 constexpr uint8_t kPinButtonPrg = 0;  // relié à la masse quand pressé
+constexpr uint8_t kPinLed = 35;      // LED blanche (actif haut)
+// Connecteur GNSS : enable actif bas — on le force OFF au démarrage et
+// avant deep sleep (MeshCaching n'utilise pas le GPS).
+constexpr uint8_t kPinGpsEn = 34;
+constexpr uint8_t kGpsEnOffLevel = HIGH;
 
 // Vext (alim de l'OLED) : actif à l'état BAS sur toute la série — le
 // rail est commuté par un MOSFET canal P (schéma officiel HTIT-WB32LAF
@@ -83,6 +90,11 @@ public:
   void initPower() override {
     pinMode(kPinVext, OUTPUT);
     digitalWrite(kPinVext, kVextOnLevel);  // allume le rail Vext (OLED)
+
+    pinMode(kPinLed, OUTPUT);
+    digitalWrite(kPinLed, LOW);
+    pinMode(kPinGpsEn, OUTPUT);
+    digitalWrite(kPinGpsEn, kGpsEnOffLevel);
 
     // Alimente le FEM puis identifie sa référence par le niveau de repos
     // de CSD (astuce reprise de MeshCore) : pull-up interne sur le
@@ -152,6 +164,56 @@ public:
   void beginDisplay() override {
     _display.begin();
     _u8g2.setContrast(255);
+    _displayPowered = true;
+  }
+
+  bool canPowerDisplay() const override { return true; }
+
+  bool isDisplayPowered() const override { return _displayPowered; }
+
+  // Pas de coupure Vext : on efface seulement la trame (pixels éteints)
+  // pour limiter le burn-in. Rallumer = redessiner côté App.
+  void setDisplayPowered(bool on) override {
+    if (on == _displayPowered) {
+      return;
+    }
+    if (!on) {
+      _u8g2.clearBuffer();
+      _u8g2.sendBuffer();
+    }
+    _displayPowered = on;
+  }
+
+  bool hasActivityLed() const override { return true; }
+
+  void setActivityLed(bool on) override { digitalWrite(kPinLed, on ? HIGH : LOW); }
+
+  bool canDeepSleep() const override { return true; }
+
+  void enterDeepSleep() override {
+    // LED forcée OFF et verrouillée : sans hold, la broche peut flotter
+    // en deep sleep et laisser la LED allumée (fuite batterie).
+    digitalWrite(kPinLed, LOW);
+    gpio_hold_en((gpio_num_t)kPinLed);
+    gpio_deep_sleep_hold_en();
+
+    // Blank puis coupe Vext / FEM / GPS — réveil uniquement par Reset.
+    _u8g2.clearBuffer();
+    _u8g2.sendBuffer();
+    digitalWrite(kPinVext, kVextOnLevel == LOW ? HIGH : LOW);
+    _displayPowered = false;
+    pinMode(kPinFemCsd, OUTPUT);
+    digitalWrite(kPinFemCsd, LOW);
+    if (kExpectGc1109) {
+      pinMode(kPinFemGc1109Cps, OUTPUT);
+      digitalWrite(kPinFemGc1109Cps, LOW);
+    } else {
+      pinMode(kPinFemKctCtx, OUTPUT);
+      digitalWrite(kPinFemKctCtx, LOW);
+    }
+    digitalWrite(kPinFemLdo, LOW);
+    digitalWrite(kPinGpsEn, kGpsEnOffLevel);
+    esp_deep_sleep_start();
   }
 
   RadioTraits radio() const override {
@@ -183,6 +245,7 @@ public:
 private:
   const char *_selfCheckError = nullptr;
   bool _femLnaEnabled = false;
+  bool _displayPowered = false;
   U8G2_SSD1306_128X64_NONAME_F_HW_I2C _u8g2{U8G2_R0, kPinOledReset,
                                             kPinOledScl, kPinOledSda};
   U8g2Display _display{_u8g2};

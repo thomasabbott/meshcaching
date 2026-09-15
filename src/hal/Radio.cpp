@@ -147,3 +147,9 @@ int16_t Radio::startReceive() {
   _board.radioRxMode();
   return _lora.startReceive();
 }
+
+void Radio::sleep() {
+  _lora.clearDio1Action();
+  s_packetFlag = false;
+  _lora.sleep(false);
+}

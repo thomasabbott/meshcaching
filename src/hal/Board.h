@@ -69,6 +69,25 @@ public:
   // (sondage d'adresse I2C, réglage de contraste, etc.)
   virtual void beginDisplay() { display().begin(); }
 
+  // Affichage « éteint » (cartes qui gèrent un blank logiciel, p. ex.
+  // Heltec V4) : un seul échéancier — appui bouton = 60 s depuis
+  // maintenant ; paquet cible = au moins 5 s (n'abrège jamais une
+  // fenêtre bouton plus longue). Le panneau reste alimenté : on n'efface
+  // que les pixels (anti burn-in).
+  virtual bool canPowerDisplay() const { return false; }
+  virtual bool isDisplayPowered() const { return true; }
+  virtual void setDisplayPowered(bool /*on*/) {}
+
+  // LED d'activité (témoin de vie). hasActivityLed() faux = pas de LED.
+  virtual bool hasActivityLed() const { return false; }
+  virtual void setActivityLed(bool /*on*/) {}
+
+  // Arrêt profond (ne revient jamais) : coupures radio/écran/GPS côté
+  // carte. L'application met d'abord la radio en sleep(), puis appelle
+  // ceci. canDeepSleep() faux = pas d'arrêt automatique.
+  virtual bool canDeepSleep() const { return false; }
+  virtual void enterDeepSleep() {}
+
   virtual RadioTraits radio() const = 0;
 
   // Puissance TX "à l'antenne", bornes propres à la carte.

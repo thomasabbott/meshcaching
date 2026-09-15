@@ -41,6 +41,14 @@ private:
   void sendTracePing();
   void handleIncomingPacket();
   bool packetComesFromTarget(const uint8_t *packet, size_t len);
+  // Écran coupé (Vext) : relance à maintenant+ms (bouton) ou prolonge
+  // jusqu'à au moins maintenant+ms (paquet), puis rallume si besoin.
+  void noteDisplayButton();
+  void noteDisplayPacket();
+  void ensureDisplayOn();
+  void tickDisplayPower();
+  void tickActivityLed();
+  void tickDeepSleep();
 
   Board &_board;
   Radio _radio;
@@ -67,4 +75,10 @@ private:
   uint32_t _rxFlashStartMs = 0;
   uint32_t _lastNoiseSampleMs = 0;
   uint32_t _lastDisplayRefreshMs = 0;
+  // Instant (millis) auquel couper l'écran ; ignoré si la carte ne gère
+  // pas l'alimentation de l'afficheur.
+  uint32_t _displayOffAtMs = 0;
+  // Dernier appui bouton — ancre du deep sleep (10 min), distinct du
+  // blank écran (les paquets ne le prolongent pas).
+  uint32_t _lastButtonMs = 0;
 };

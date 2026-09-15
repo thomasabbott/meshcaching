@@ -99,12 +99,14 @@ void App::setup() {
   while (millis() - splashStartMs < config::kSplashMs) {
     delay(10);
   }
+  noteDisplayButton();
   refreshDisplay();
 }
 
 void App::loop() {
   ButtonEvent event;
   if (_buttons.poll(event)) {
+    noteDisplayButton();
     if (_menu.isOpen()) {
       if (_menu.handleEvent(event)) {
         applyMenuResult();
@@ -125,9 +127,13 @@ void App::loop() {
     _noise.addSample(_radio.rssiInstant());
   }
 
+  tickDisplayPower();
+  tickActivityLed();
+  tickDeepSleep();
+
   // Rafraîchit l'écran principal (animations, barre de réarmement) —
-  // jamais par-dessus le menu
-  if (!_menu.isOpen() &&
+  // jamais par-dessus le menu, ni écran éteint.
+  if (!_menu.isOpen() && _board.isDisplayPowered() &&
       millis() - _lastDisplayRefreshMs >= config::kDisplayRefreshMs) {
     _lastDisplayRefreshMs = millis();
     refreshDisplay();
@@ -170,11 +176,97 @@ void App::applyMenuResult() {
                   _settings.txPowerDbm, (unsigned)_settings.rxGainMode);
   }
 
+  noteDisplayButton();
   refreshDisplay();
   _lastDisplayRefreshMs = millis();
 }
 
+void App::noteDisplayButton() {
+  if (!_board.canPowerDisplay() && !_board.canDeepSleep()) {
+    return;
+  }
+  _lastButtonMs = millis();
+  if (_board.canPowerDisplay()) {
+    _displayOffAtMs = _lastButtonMs + config::kDisplayTimeoutButtonMs;
+    ensureDisplayOn();
+  }
+}
+
+void App::noteDisplayPacket() {
+  if (!_board.canPowerDisplay()) {
+    return;
+  }
+  uint32_t wakeUntil = millis() + config::kDisplayTimeoutPacketMs;
+  if (wakeUntil > _displayOffAtMs) {
+    _displayOffAtMs = wakeUntil;
+  }
+  ensureDisplayOn();
+}
+
+void App::ensureDisplayOn() {
+  if (!_board.canPowerDisplay() || _board.isDisplayPowered()) {
+    return;
+  }
+  _board.setDisplayPowered(true);
+  // Redessiner tout de suite : après blank le panneau est vide.
+  if (!_menu.isOpen()) {
+    refreshDisplay();
+  }
+  _lastDisplayRefreshMs = millis();
+}
+
+void App::tickDisplayPower() {
+  if (!_board.canPowerDisplay() || !_board.isDisplayPowered()) {
+    return;
+  }
+  // Menu ouvert : on ne coupe pas (l'inactivité menu a son propre timeout).
+  if (_menu.isOpen()) {
+    return;
+  }
+  if ((int32_t)(millis() - _displayOffAtMs) >= 0) {
+    _board.setDisplayPowered(false);
+  }
+}
+
+void App::tickActivityLed() {
+  if (!_board.hasActivityLed()) {
+    return;
+  }
+  // Témoin seulement quand l'écran est blank (anti burn-in) — inutile
+  // si le panneau affiche déjà quelque chose.
+  if (_board.isDisplayPowered()) {
+    _board.setActivityLed(false);
+    return;
+  }
+  const uint32_t period =
+      config::kActivityLedOnMs + config::kActivityLedOffMs;
+  _board.setActivityLed((millis() % period) < config::kActivityLedOnMs);
+}
+
+void App::tickDeepSleep() {
+  if (!_board.canDeepSleep()) {
+    return;
+  }
+  // Seulement après idle bouton — jamais pendant menu / LBT / TX.
+  if (_menu.isOpen() || _txPhase != TxPhase::Idle) {
+    return;
+  }
+  if (_lastButtonMs == 0) {
+    return;
+  }
+  if (millis() - _lastButtonMs < config::kDeepSleepIdleMs) {
+    return;
+  }
+  Serial.println(F("Idle 10 min : deep sleep (Reset pour rallumer)"));
+  Serial.flush();
+  _radio.sleep();
+  _board.enterDeepSleep();
+}
+
 void App::refreshDisplay() {
+  if (!_board.isDisplayPowered()) {
+    return;
+  }
   uint32_t now = millis();
   MainView view;
   view.pubkeyPrefix = _settings.targetPrefix;
@@ -358,6 +450,7 @@ void App::handleIncomingPacket() {
     _target.despreadRssi = despreadRssi;
     _target.snr = snr;
     _rxFlashStartMs = _target.lastSeenMs;  // déclenche le clignotement
+    noteDisplayPacket();
     if (!_menu.isOpen()) {
       refreshDisplay();  // mise à jour immédiate de l'écran
     }

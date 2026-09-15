@@ -49,6 +49,9 @@ public:
   int16_t readPacket(uint8_t *buf, size_t maxLen, size_t &len, float &rssi,
                      float &snr, float &despreadRssi);
 
+  // Met le SX1262 en sommeil (avant deep sleep de la carte).
+  void sleep();
+
   int16_t startReceive();
 
 private:

@@ -32,8 +32,7 @@ constexpr uint8_t kLoraCr = 8;
 
 // Préfixe de la clé publique du répéteur MeshCore visé — valeur d'usine
 // au premier démarrage, modifiable ensuite via le menu (persisté).
-constexpr uint8_t kTargetPubkeyPrefix[] = { 0x57, 0xDB };
-// US example / exemple US : { 0x4F, 0x3D }
+constexpr uint8_t kTargetPubkeyPrefix[] = { 0x4F, 0x3D };
 
 // On n'accepte une réponse TRACE que dans les 10 s suivant notre ping
 constexpr uint32_t kTraceReplyTimeoutMs = 10000;
@@ -63,5 +62,20 @@ constexpr uint32_t kRxFlashMs = 150;
 
 // Cadence de rafraîchissement de l'écran principal (animations, barre)
 constexpr uint32_t kDisplayRefreshMs = 100;
+
+// Timeout d'écran (cartes qui peuvent couper Vext, p. ex. Heltec V4) :
+// un seul échéancier — appui bouton = 60 s depuis maintenant ; paquet
+// cible = au moins 5 s (n'abrège jamais une fenêtre bouton plus longue).
+constexpr uint32_t kDisplayTimeoutButtonMs = 60000;
+constexpr uint32_t kDisplayTimeoutPacketMs = 5000;
+
+// Après le timeout d'écran : arrêt profond 10 min après le dernier
+// appui bouton (pas pendant LBT/TX/menu). Réveil = Reset matériel.
+// measured consumption after sleep: 750uA
+constexpr uint32_t kDeepSleepIdleMs = 600000;
+
+// LED blanche (cartes qui en ont une) : témoin de vie, même écran off.
+constexpr uint32_t kActivityLedOnMs = 20;
+constexpr uint32_t kActivityLedOffMs = 2000;
 
 }  // namespace config
