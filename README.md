@@ -16,15 +16,16 @@ de Tutoduino, préconisé pour l'évènement
 |------------------|--------------------------------|------------|------------------|----------------|------------------|-----------------|
 | `wio_tracker_l1` | Seeed Wio Tracker L1 Pro       | nRF52840   | SX1262           | SH1106 128×64  | croix + 2 boutons| 22 / 22 dBm     |
 | `heltec_v3`      | Heltec WiFi LoRa 32 V3         | ESP32-S3   | SX1262           | SSD1306 128×64 | 1 bouton (PRG)   | 22 / 22 dBm     |
+| `heltec_v4_2`    | Heltec WiFi LoRa 32 V4.2       | ESP32-S3R2 | SX1262 + FEM     | SSD1306 128×64 | 1 bouton (PRG)   | 20 / 20 dBm     |
 | `heltec_v4_3`    | Heltec WiFi LoRa 32 V4.3       | ESP32-S3R2 | SX1262 + FEM     | SSD1306 128×64 | 1 bouton (PRG)   | 20 / 20 dBm     |
 | `heltec_v4_r8`   | Heltec WiFi LoRa 32 V4 « R8 »  | ESP32-S3R8 | SX1262 + FEM     | SSD1306 128×64 | 1 bouton (PRG)   | 20 / 20 dBm     |
 | `heltec_t096`    | Heltec T096                    | nRF52840   | SX1262 + FEM     | ST7735 160×80  | 1 bouton         | 22 / 22 dBm     |
 | `tbeam_supreme`  | LilyGo T-Beam Supreme (868)    | ESP32-S3   | SX1262           | SH1106 128×64  | 1 bouton         | 22 / 22 dBm     |
 
-Sur les cartes à FEM (V4.3, V4 R8, T096), la puissance est exprimée « à
+Sur les cartes à FEM (V4.2, V4.3, V4 R8, T096), la puissance est exprimée « à
 l'antenne » : le gain du KCT8103L en émission (~12 dB sur les V4, ~13 dB sur
 le T096) est retranché automatiquement de la consigne passée au SX1262. Non
-gérés : les V4 antérieurs à la 4.3 (FEM GC1109) et les déclinaisons TFT /
+gérés : les déclinaisons TFT /
 e-ink des V4. Sur les V4, le type de FEM est vérifié au démarrage (même
 détection que MeshCore, via le niveau de repos de la broche CSD) : un V4 ≤ 4.2
 flashé par erreur s'arrête sur « Carte incompatible » sans jamais émettre.
